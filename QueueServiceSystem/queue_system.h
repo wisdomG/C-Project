@@ -23,7 +23,8 @@ private:
     double avg_customers;
     double avg_stay_time;
 
-    double init() {
+    // 初始化
+    void init() {
         // 新建一个事件，默认为用户到达事件，同时随机生成了事件发生时间
         struct Event *event = new Event;
         current_event = event;
@@ -32,6 +33,7 @@ private:
     // 返回平均等待时间
     double run() {
         this->init();
+        // 观察事件列表中是否还有事件，有则根据事件类型做出不同的响应
         while (current_event) {
             if (current_event->event_type == -1) {
                 customerArrived();
@@ -39,14 +41,15 @@ private:
                 customerDeparture();
             }
             delete current_event;
+            // 事件处理完之后就出队
             current_event = event_list.dequeue();
         }
         this->end();
         return (double)(total_customer_stay_time / total_customer_num);
     }
 
+    // 结束后的清理工作：清空队列，设置窗口空闲
     void end() {
-        // 设置窗口状态空闲，同时清空队列
         for (int i = 0; i < window_num; ++i) {
             windows[i].setIdle();
         }
@@ -54,7 +57,7 @@ private:
         event_list.clearQueue();
     }
 
-    // 获取空闲窗口索引
+    // 遍历每个窗口的当前状态，获取空闲窗口索引
     int getIdelServiceWindow() {
         for (int i = 0; i < window_num; ++i) {
             if (windows[i].isIdle()) return i;
@@ -62,6 +65,7 @@ private:
         return -1;
     }
 
+    // 处理顾客到达事件
     void customerArrived() {
         // 顾客数递增
         ++total_customer_num;
@@ -69,18 +73,19 @@ private:
         int intertime = Random::uniform(INTERVAL);
         int time = current_event->occur_time + intertime;
         struct Event tmp_event(time);
-        // 如果事件在服务时间内，则入队
+        // 如果新生成的用户到达事件的用户达到时间在服务时间内，则入队准备接受服务
         if (time < total_service_time) {
             event_list.orderEnqueue(tmp_event);
         }
-        // 生成一个顾客，利用事件的发生时间（即到达时间）初始化，同时随机生成了该用户所需的服务时间
+        // 利用当前事件的到达事件实例化一个顾客，同时随机生成了该用户所需的服务时间
         Customer *customer = new Customer(current_event->occur_time);
         if (!customer) {
             cout << "memory allocate failed" << endl;
             exit(-1);
         }
-        // 顾客入队
+        // 将当前事件所对应的顾客入队
         customer_list.enqueue(*customer);
+
         // 找到空闲窗口并分配给该顾客
         int idleIndex = getIdelServiceWindow();
         if (idleIndex >= 0) {
@@ -98,6 +103,7 @@ private:
         delete customer;
     }
 
+    // 处理顾客离开事件
     void customerDeparture() {
         // 客户离开时，银行还没下班
         if (current_event->occur_time < total_service_time) {
@@ -114,6 +120,8 @@ private:
             } else {
                 windows[current_event->event_type].setIdle();
             }
+        } else {
+            // 已经过了下班时间，不再进行服务，只需将事件队列中的时间处理完即可
         }
     }
 public:

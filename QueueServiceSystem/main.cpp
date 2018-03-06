@@ -5,8 +5,8 @@
 int main() {
     srand(time(NULL));
     int total_service_time = 480;
-    int window_num = 1;
-    int simulate_num = 100000;
+    int window_num = 5;
+    int simulate_num = 10000;
 
     QueueSystem system(total_service_time, window_num);
     system.simulate(simulate_num);

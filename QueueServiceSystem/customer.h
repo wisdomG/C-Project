@@ -10,6 +10,7 @@ struct Node {
     int arriveTime;
     struct Node *next;
 
+    // 顾客到达事件和服务时长
     Node (int arriveTime = 0, int duration = Random::uniform(SERVICE_TIME_MAX)) :
         arriveTime(arriveTime), duration(duration), next(NULL) {}
 };
