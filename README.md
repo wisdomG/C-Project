@@ -1,2 +1,2 @@
 # C-Project
-My project on C++ for learning.
+Some projects base on C/C++ for self-learning.
