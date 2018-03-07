@@ -1,2 +1,2 @@
 # C-Project
-Some projects base on C/C++ for self-learning.
+用于自学的C++小项目
