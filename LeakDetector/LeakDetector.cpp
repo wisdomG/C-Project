@@ -15,22 +15,23 @@ typedef struct _MemoryList{
 } _MemoryList;
 
 static unsigned long _memory_allocated = 0;
+unsigned int _leak_detector::callCnt = 0;
 
+// 虚拟头结点
 static _MemoryList _root = {
         //&_root, &_root,
         nullptr, nullptr,
         0, false, nullptr, 0
 };
 
-unsigned int _leak_detector::callCnt = 0;
-
+// 分配内存
 void* AllocateMemory(size_t _size, bool _array, const char *_file, unsigned int _line) {
 
     // 申请两部分空间，前面是节点，后面是实际给用户的空间
     size_t newSize = sizeof(_MemoryList) + _size;
     _MemoryList *newEle = reinterpret_cast<_MemoryList*>(malloc(newSize));
 
-    // 将新申请的内存加入到根节点之后
+    // 将新申请的内存加入到根节点之后，即新申请的节点总是位置链表头部的位置，即除了虚拟头结点的第一个节点
     newEle->next = _root.next;
     newEle->prev = &_root;
     //_root.next->prev = newEle;
@@ -47,7 +48,7 @@ void* AllocateMemory(size_t _size, bool _array, const char *_file, unsigned int 
         strcpy(newEle->file, _file);
     }
 
-    // 记录以申请的内存空间
+    // 记录已申请的内存空间
     _memory_allocated += _size;
 
     // 返回给用户使用的空间
@@ -70,6 +71,7 @@ void DeleteMemory(void* _ptr, bool _array) {
     free(curr);
 }
 
+// 重载new和delete运算符，内部使用我们的内存分配函数实现
 void* operator new(size_t _size) {
     std::cout << "new1 " << _size << std::endl;
     return AllocateMemory(_size, false, nullptr, 0);
@@ -107,7 +109,7 @@ unsigned int _leak_detector::LeakDetector(void) noexcept {
         if (ptr->isArray) std::cout << "leak[] ";
         else std::cout << "leak ";
         std::cout << ptr << " size " << ptr->size ;
-        if (ptr->file) std::cout << " (locate in" << ptr->file << " line " << ptr->line << ")" << std::endl;
+        if (ptr->file) std::cout << " (locate in " << ptr->file << " line " << ptr->line << ")" << std::endl;
         else std::cout << " can not find the position" << std::endl;
 
         ++cnt;
