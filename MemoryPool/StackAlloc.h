@@ -5,6 +5,10 @@
 #ifndef MEMORYPOOL_STACKALLOC_H
 #define MEMORYPOOL_STACKALLOC_H
 
+// 模板链表栈
+
+// 使用链表表示栈，链表头结点指向栈顶，即最后一个入栈的元素
+// 利用pre指针，依次连接从栈顶到栈底的元素，这样就可以方便的就行入栈和出栈操作
 #include <memory>
 template <typename T>
 struct StackNode_ {
