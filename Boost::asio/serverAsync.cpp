@@ -10,7 +10,7 @@ class server {
     private:
         boost::asio::io_service m_io;
         boost::asio::ip::tcp::acceptor m_acceptor;
-        shared_ptr<boost::asio::streambuf> rdbuf;
+        boost::shared_ptr<boost::asio::streambuf> rdbuf;
         char buf[1024];
     public:
         // acceprot这个构造函数直接完成了socket, bind, listen 等动作
@@ -20,6 +20,8 @@ class server {
         }
 
         void run() {
+            // 在run之前，给一些空闲的任务，保证run一直进行下去
+            boost::shared_ptr<boost::asio::io_service::work> dummy_word(new boost::asio::io_service::work(m_io));
             m_io.run();
         }
 
