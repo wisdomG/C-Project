@@ -8,6 +8,16 @@ using namespace std;
 #define ELEMS 100
 #define REPS 50
 
+class Test{
+    public:
+        Test() {}
+        ~Test() {}
+    private:
+        int testInt;
+        double testDouble;
+};
+
+
 int main() {
     clock_t start, end;
     // 使用默认的内存分配器，参考STL源码
@@ -31,6 +41,19 @@ int main() {
             stackMP.push(j);
         for (int j = 0; j < ELEMS; ++j)
             stackMP.pop();
+    }
+    end = clock();
+    cout << "MemoryPool Alloctor Time: ";
+    cout << (end - start) << "ms" << endl;
+
+    // 在测试一下对类进行内存分配
+    StackAlloc<Test, MemoryPool<Test>> stackMPTest;
+    start = clock();
+    for (int i = 0; i < REPS; ++i) {
+        for (int j = 0; j < ELEMS; ++j)
+            stackMPTest.push(Test());
+        for (int j = 0; j < ELEMS; ++j)
+            stackMPTest.pop();
     }
     end = clock();
     cout << "MemoryPool Alloctor Time: ";
