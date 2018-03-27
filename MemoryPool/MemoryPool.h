@@ -70,12 +70,13 @@ T* MemoryPool<T, BlockSize>::allocate(size_t n, const T *hint) {
     if (freeSlots_ != nullptr) {
         pointer result = reinterpret_cast<pointer >(freeSlots_);
         freeSlots_ = freeSlots_->next;
-        std::cout << "----freeSlot_" << std::endl;
+        //std::cout << "----freeSlot_" << std::endl;
         return result;
     } else {
-        // 内存块不够用了
+        // 内存块不够用了，或者刚开始还没有分配内存块
         if (currentSlot_ >= lastSlot_) {
             // 新建一个内存块，并连接到前一个内存块上
+            // currentBlock_总是指向最新分配的内存块
             data_pointer_  newBlock = reinterpret_cast<data_pointer_ >(operator new(BlockSize));
             reinterpret_cast<slot_pointer_ >(newBlock)->next = currentBlock_;
             currentBlock_ = reinterpret_cast<slot_pointer_ >(newBlock);
