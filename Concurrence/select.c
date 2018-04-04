@@ -50,6 +50,7 @@ int main() {
     // allset记录所有被监听的位都为1，而rset中只有那些有数据的文件描述符对应的位为1
     for (; ;) {
         rset = allset;
+        //FD_ZERO(&rset);
         // 调用select函数阻塞监听
         nready = select(maxfd+1, &rset, NULL, NULL, NULL);
         if (nready < 0) {
@@ -91,7 +92,10 @@ int main() {
 
             if (FD_ISSET(sockfd, &rset)) {
                 ssize_t n;
+                // 返回0，说明客户端请求关闭连接，即发送了FIN信号
                 if ((n = read(sockfd, buf, LEN)) == 0) {
+                    strcpy(buf, "please waiting for 5 seconds\n");
+                    //sleep(5);
                     close(sockfd);
                     FD_CLR(sockfd, &allset);
                     client[i] = -1;
@@ -99,6 +103,7 @@ int main() {
                 } else {
                     buf[n] = '\0';
                     printf("来自文件描述符 %d 的消息：%s\n", sockfd, buf);
+                    sleep(1);
                     // 转换成大写返回
                     for (int j = 0; j < n; ++j)
                         buf[j] = toupper(buf[j]);
