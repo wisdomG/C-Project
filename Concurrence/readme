@@ -1,0 +1,52 @@
+为了方便，这里给出三个并发函数的函数原型，供理解参考
+原型全部按照man指令给出的运行（2018-07-26 运行与Ubuntu云主机上）
+
+select:
+int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *errorfds, struct timeval *timeout)
+--nfds: 最大文件描述符加1，相当于告诉系统要监控多少个文件描述符
+--readfds: 监控文件描述符读变化，
+--writefds: 监控文件描述符的写变化
+--errorfds: 监控文件描述符的异常错误
+--timeout: 设置超时时间，为NULL时将select设置成纯阻塞状态，一直到有文件描述符发生变化才返回；0毫秒时将select置为纯非阻塞函数，函数立即返回，无文件变化返回0，有文件变化返回正值；传入正常超时时间，则介于前两种状态之间
+--return: 整数表示有文件读写，负数表示出错，0一般表示非阻塞状态下的立即返回，即没有读写变化
+在实例中，将rset(其初值为allset，即被监控的所有文件描述符)作为第二个参数传入，当函数返回后，检查rset上是否被set，从而判断哪个文件描述符上有读事件
+
+poll:
+int poll(struct pollfd *fds, nfds_t nfds, int timeout)
+struct pollfd {
+int fd;        /* file descriptor */
+short events;  /* 监控的事件，用或运算符实现监控多个事件的目的，用户设置 */
+short revents; /* 实际发生的事件，内核设置 */
+}
+--fds: 指向一个pollfd数组的指针
+--nfds: 指定第一个参数的长度，即数组长度
+--timeout: 指定等待的毫秒数，超过后，无论是否准备好，都会返回，-1永远等待，0立即返回，>0为毫秒数
+--return: 同select
+
+epoll:
+主要对应三个调用
+int epoll_create(int size)
+创建一个epoll句柄，size可忽略
+int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
+事件注册函数
+--epfd: epoll_create创建的句柄
+--op: 想要完成的操作，有EPOLL_CTL_ADD, EPOLL_CTL_MOD, EPOLL_CTL_DEL三个
+--fd: 需要监听的fd
+--event: 告诉内核监听什么事件，是宏的集合，每个宏表示事件的状态
+int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout)
+--epfd: 句柄
+--events: 分配好的epoll_event结构体数组
+--maxevents: 告知内核events有多大
+--timeout: 于poll中的相同
+typedef union epoll_data {
+    void *ptr;
+    int fd;
+    __uint32_t u32;
+    __uint64_t u64;
+} epoll_data_t;
+struct epoll_event {
+    __uint32_t events;
+    epoll_data_t data;
+}
+
+

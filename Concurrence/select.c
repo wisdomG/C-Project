@@ -26,6 +26,7 @@ int main() {
     char buf[LEN], str[INET_ADDRSTRLEN];
     struct sockaddr_in serv_addr, client_addr;
     fd_set rset, allset;    // 文件描述符集fd_set是一个long型数组，每个元素都与一个句柄建立联系
+    // 通过使用sizeof操作符，可以发现fd_set的大小为128Byte=1024bit，正好与FD_SETSIZE的大小对应
 
     // 设置socket相关参数并开始监听
     listenfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -51,7 +52,6 @@ int main() {
     for (; ;) {
         rset = allset;
         //FD_ZERO(&rset);
-        // 调用select函数阻塞监听
         nready = select(maxfd+1, &rset, NULL, NULL, NULL);
         if (nready < 0) {
             printf("select error");
