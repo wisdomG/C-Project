@@ -25,7 +25,7 @@ int main() {
     int nready;             // 监听到的数量
     char buf[LEN], str[INET_ADDRSTRLEN];
     struct sockaddr_in serv_addr, client_addr;
-    fd_set rset, allset;
+    fd_set rset, allset;    // 文件描述符集fd_set是一个long型数组，每个元素都与一个句柄建立联系
 
     // 设置socket相关参数并开始监听
     listenfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -43,8 +43,8 @@ int main() {
     for (i = 1; i < FD_SETSIZE; ++i)
         client[i] = -1;
 
-    FD_ZERO(&allset);
-    FD_SET(listenfd, &allset);
+    FD_ZERO(&allset);           // 将allset清零使集合中不含任何fd
+    FD_SET(listenfd, &allset);  // 将listenfd加入allset
     printf("socket监听文件描述符:%d\n", listenfd);
 
     // allset记录所有被监听的位都为1，而rset中只有那些有数据的文件描述符对应的位为1
@@ -87,7 +87,7 @@ int main() {
 
         // 查看其他有消息过来的文件描述符，准备开始通信
         for (int i = 0; i <= maxi; ++i) {
-            if ((sockfd = client[i]) < 0)
+            if ((sockfd = client[i]) < 0) // 赋值的同时检查是否为-1，是则直接跳过
                 continue;
 
             if (FD_ISSET(sockfd, &rset)) {
