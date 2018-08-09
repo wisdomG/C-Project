@@ -8,10 +8,10 @@
 #include <pthread.h>
 using namespace std;
 
-/**
+/*********************************************************************
  * 任务父类
  * 子类重写run函数，作为线程任务
- */
+ ********************************************************************/
 class CTask {
     protected:
         string taskName;
@@ -24,18 +24,20 @@ class CTask {
         virtual ~CTask() {}
 };
 
-/**
+/*******************************************************************
  * 线程池类
- */
+ ******************************************************************/
 class ThreadPool {
 private:
-    static queue<CTask*> taskList;
+    // 任务队列，每个任务其实就是一个对象
+    // 每个线程从队列中取出这个对象，再执行该对象的run方法
+    static queue<CTask*> taskList;  
     static bool shutdown;
     int threadNum;
     pthread_t *tids;
 
-    static pthread_mutex_t mutex;
-    static pthread_cond_t cond;
+    static pthread_mutex_t mutex;   // 信号量和条件变量
+    static pthread_cond_t cond;     
 
 protected:
     static void* threadFunc(void* data);
