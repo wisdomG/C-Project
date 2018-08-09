@@ -25,7 +25,7 @@ namespace WebServer {
 
     // 定义资源类型，是一个map，key是一个字符串(在本项目中其实一个正则表达式，匹配用户请求资源的路径)
     // value是一个hashmap，key是字符串(表示请求的方法，GET或者POST)，
-    // value是一个返回类型为空，参数为ostream和Request的函数(相应给用户的内容，包括请求头信息与输出数据流)
+    // value是一个返回类型为空，参数为ostream和Request的函数(响应给用户的内容，包括请求头信息与输出数据流)
     // 就相当于是一个响应体和响应头的结合
     typedef map<string, unordered_map<string,
             function<void(ostream&, Request&)>>> resource_type;
@@ -37,12 +37,12 @@ namespace WebServer {
             resource_type resource;
             // 用于保存默认资源的处理方式
             resource_type default_resource;
-            // 用户启动服务器
+            // 启动服务器
             void start();
 
             ServerBase(unsigned short port, size_t num_threads = 1) :
-                endpoint(boost::asio::ip::tcp::v4(), port),
-                acceptor(m_io_service, endpoint),
+                endpoint(boost::asio::ip::tcp::v4(), port), // 这里对endpoint进行了构造
+                acceptor(m_io_service, endpoint),           // 这里对acceptor进行了构造
                 num_threads(num_threads) {}
         protected:
             // 用于内部实现对所有资源的处理
@@ -57,6 +57,7 @@ namespace WebServer {
             vector<thread> threads;
 
             // 根据不同类型的服务器实现不同的方法
+            // 实际上就是交给子类去实现
             virtual void accept() {}
             // 处理请求和应答
             void process_request_and_respond(shared_ptr<socket_type> socket) const;
@@ -66,14 +67,18 @@ namespace WebServer {
             void respond(shared_ptr<socket_type> socket, shared_ptr<Request> request) const ;
     };
 
+    // Server是一个子类，从父类那里继承了构造函数，因此在main函数中直接调用了带参构造函数
+    // Server<HTTP> server(12345, 5)
     template<typename socket_type>
     class Server: public ServerBase<socket_type> {
 
     };
 
+    // 在handler.h中的start_server函数中进行资源的准备，最后使用start函数启动服务器
     template<typename socket_type>
     void ServerBase<socket_type>::start() {
         // 在handler中的start_server函数中配置了resource
+        // 将资源
         for (auto it = resource.begin(); it != resource.end(); ++it) {
             all_resources.push_back(it);
         }
@@ -155,6 +160,7 @@ namespace WebServer {
         Request request;
         // 通过该正则表达式对请求头进行解析，可以解析出请求方法，请求路径，和HTTP版本
         // 一个Http的请求行为 POST www.baidu.com/index.html HTTP/1.1
+        // ^字符串开始，$字符串结束，[^ ]不包含空格
         regex e("^([^ ]*) ([^ ]*) HTTP/([^ ]*)$");
         smatch sub_match;
 
@@ -162,12 +168,13 @@ namespace WebServer {
         getline(stream, line);
         line.pop_back();
         if (regex_match(line, sub_match, e)) {
-            // 通过自匹配获取请求行信息
+            // 通过子匹配获取请求行信息
             request.method = sub_match[1];
             request.path = sub_match[2];
             request.http_version = sub_match[3];
 
             bool matched;
+            // 第一个括号匹配请求头中的key，第二个括号匹配value
             e = "^([^:]*): ?(.*)$";
             // 循环获取请求头中的键值信息
             do {

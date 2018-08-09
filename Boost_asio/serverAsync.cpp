@@ -6,14 +6,18 @@
 #include <boost/shared_ptr.hpp>
 using namespace std;
 
+// 这里为什么大量使用共享指针呢？
+
+// 基于BoostAsio的异步服务端
+
 class server {
     private:
         boost::asio::io_service m_io;
         boost::asio::ip::tcp::acceptor m_acceptor;
-        boost::shared_ptr<boost::asio::streambuf> rdbuf;
+        boost::shared_ptr<boost::asio::streambuf> rdbuf; // streambuf为什么要用智能指针呢？
         char buf[1024];
     public:
-        // acceprot这个构造函数直接完成了socket, bind, listen 等动作
+        // acceptor这个构造函数直接完成了socket, bind, listen 等动作
         server() : m_acceptor(m_io, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), 8000)) {
             //rdbuf = make_shared<boost::asio::streambuf>();
             accept();
@@ -29,18 +33,21 @@ class server {
             // 建立一个用户客户端socket
             boost::shared_ptr<boost::asio::ip::tcp::socket> sock(new boost::asio::ip::tcp::socket(m_io));
             cout << "a new client socket was build" << endl;
+            // async_accept传入了socket对象，而accept_handler我们写的接受的是一个socket指针
             m_acceptor.async_accept(*sock, boost::bind(&server::accept_handler, this, boost::asio::placeholders::error, sock));
-            cout << "fdafas" << endl;
+            cout << "this should not be executed" << endl;
         }
 
         void accept_handler(const boost::system::error_code& ec, boost::shared_ptr<boost::asio::ip::tcp::socket> sock) {
-            accept();
+            accept();   // 立即启动异步接受
             if (ec) {
                 printf("error\n");
                 return ;
             }
             cout << "new client: " << endl;
             cout << sock->remote_endpoint().address() << endl;
+
+            // 异步写
             sock->async_write(boost::asio::buffer("hello world"), boost::bind(&server::write_handler, this, boost::asio::placeholders::error));
 
             //boost::shared_ptr<boost::asio::streambuf> rdbuf;

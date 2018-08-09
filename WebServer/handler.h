@@ -7,6 +7,7 @@
 using namespace std;
 using namespace WebServer;
 
+// 这里定义了一个模板函数，程序相当于从这里启动
 template<typename server_type>
 void start_server(server_type &server) {
     // 准备系统启动所需的各项资源
@@ -77,6 +78,7 @@ void start_server(server_type &server) {
         }
     };
 
+    // 准备好上述资源后，启动服务器
     server.start();
 }
 
