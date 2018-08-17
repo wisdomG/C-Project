@@ -40,6 +40,7 @@ int main(int argc, char* argv[]) {
     fds[0].events = POLLIN;
     fds[0].revents = 0;
     fds[1].fd = sockfd;
+    // POLLRDHUP信号表示对方关闭了连接
     fds[1].events = POLLIN | POLLRDHUP;
     fds[1].revents = 0;
 
