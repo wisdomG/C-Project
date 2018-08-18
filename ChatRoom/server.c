@@ -22,7 +22,7 @@ struct client_data {
     char buf[BUFFER_SIZE];
 };
 
-int setnonblockint(int fd) {
+int setnonblocking(int fd) {
     int old_option = fcntl(fd, F_GETFL);
     int new_option = old_option | O_NONBLOCK;
     fcntl(fd, F_SETFL, new_option);
@@ -54,10 +54,11 @@ int main(int argc, char* argv[]) {
     assert(ret != -1);
 
     client_data *users = new client_data[FD_LIMIT];
+    /* 共计USER_LIMIT+1个文件描述符，+1是因为还有一个listenfd */
     pollfd fds[USER_LIMIT + 1];
     int user_counter = 0;
-    for (int i = 1; i < USER_LIMIT; ++i) {
-        fds[i].fd = -1;
+    for (int i = 1; i <= USER_LIMIT; ++i) {
+        fds[i].fd = -1;   // 由后续的connfd来填充
         fds[i].events = 0;
     }
     fds[0].fd = listenfd;
@@ -71,6 +72,88 @@ int main(int argc, char* argv[]) {
             break;
         }
         for (int i = 0; i < user_counter + 1; ++i) {
+            if ((fds[i].fd == listenfd) && (fds[i].revents & POLLIN)) {
+                struct sockaddr_in client_address;
+                socklen_t client_addrlength = sizeof(client_address);
+                int connfd = accept(listenfd, (struct sockaddr*)(&client_address), &client_addrlength);
+                if (connfd < 0) {
+                    printf("error is : %d\n", errno);
+                    continue;
+                }
+                if (user_counter >= USER_LIMIT) {
+                    const char *info = "too many users\n";
+                    printf("%s\n", info);
+                    send(connfd, info, strlen(info), 0);
+                    close(connfd);
+                    continue;
+                }
+                user_counter++;
+                users[connfd].address = client_address;
+                setnonblocking(connfd);
+                fds[user_counter].fd = connfd;
+                fds[user_counter].events = POLLIN | POLLRDHUP | POLLERR;
+                fds[user_counter].revents = 0;
+                printf("comes a new user, now hava %d users\n", user_counter);
+            }
+            else if(fds[i].revents & POLLERR) {
+                printf("get an error from %d\n", fds[i].fd);
+                char errors[100];
+                memset(errors, '\0', 100);
+                socklen_t len = sizeof(errors);
+                if (getsockopt(fds[i].fd, SOL_SOCKET, SO_ERROR, &errors, &len) < 0) {
+                    printf("get socket option failed\n");
+                }
+                continue;
+            }
+            else if (fds[i].revents & POLLRDHUP) {
+                /* 客户机关闭连接 */
+                /* 把最后一个fd拿过来填充到要被关闭的fd位置，然后再将counter-- */
+                users[fds[i].fd] = users[fds[user_counter].fd];
+                close(fds[i].fd);
+                fds[i] = fds[user_counter];
+                i--;
+                user_counter--;
+                printf("a client left\n");
+            }
+            else if (fds[i].revents & POLLIN) {
+                int connfd = fds[i].fd;
+                memset(users[connfd].buf, '\0', BUFFER_SIZE);
+                ret = recv(connfd, users[connfd].buf, BUFFER_SIZE - 1, 0);
+                printf("get %d bytes of client data %s from %d\n", ret, users[connfd].buf, connfd);
+                if (ret < 0) {
+                    if (errno != EAGAIN) {
+                        close(connfd);
+                        users[fds[i].fd] = users[fds[user_counter].fd];
+                        fds[i] = fds[user_counter];
+                        i--;
+                        user_counter--;
+                    }
+                }
+                else if (ret == 0) {
+
+                }
+                else {
+                    /* 通知其他socket准备写数据 */
+                    for (int j = 1; j <= user_counter; ++j) {
+                        if (fds[j].fd == connfd) {
+                            continue;
+                        }
+                        fds[j].events |= ~POLLIN;
+                        fds[j].events |= POLLOUT;
+                        users[fds[j].fd].write_buf = users[connfd].buf;
+                    }
+                }
+            }
+            else if (fds[i].revents & POLLOUT) {
+                int connfd = fds[i].fd;
+                if (!users[connfd].write_buf) {
+                    continue;
+                }
+                ret = send(connfd, users[connfd].write_buf, strlen(users[connfd].write_buf), 0);
+                users[connfd].write_buf = NULL;
+                fds[i].events |= ~POLLOUT;
+                fds[i].events |= POLLIN;
+            }
 
         }
     }
