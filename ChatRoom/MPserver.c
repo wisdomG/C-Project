@@ -6,13 +6,14 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
-#include <fcntl.h>
 #include <stdlib.h>
 #include <sys/epoll.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/shm.h>
+#include <fcntl.h>
 
 #define USER_LIMIT 5
 #define BUFFER_SIZE 1024
@@ -25,7 +26,7 @@ struct client_data {
     int connfd;          // socket文件描述符
     pid_t pid;           // 处理这个链接的进程pid
     int pipefd[2];       // 和父进程通信用的管道
-}
+};
 
 static const char *shm_name = "/my_shm";
 int sig_pipefd[2];
@@ -56,7 +57,7 @@ void addfd(int epollfd, int fd) {
 void sig_handler(int sig) {
     int save_errno = errno;
     int msg = sig;
-    send(sig_pipfd[1], (char*)&msg, 1, 0);
+    send(sig_pipefd[1], (char*)&msg, 1, 0);
     errno = save_errno;
 }
 
@@ -77,7 +78,7 @@ void del_resource() {
     close(listenfd);
     close(epollfd);
     shm_unlink(shm_name);
-    delete[] usert;
+    delete[] users;
     delete[] sub_process;
 }
 
@@ -96,7 +97,7 @@ int run_child(int idx, client_data *users, char *share_mem) {
     epoll_event events[MAX_EVENT_NUMBER];
     int child_epollfd = epoll_create(5);
     assert(child_epollfd != -1);
-    int connfd = uesrs[idx].connfd;
+    int connfd = users[idx].connfd;
     addfd(child_epollfd, connfd);
     int pipefd = users[idx].pipefd[1];
     addfd(child_epollfd, pipefd);
@@ -111,11 +112,11 @@ int run_child(int idx, client_data *users, char *share_mem) {
         for (int i = 0; i < number; ++i) {
             int sockfd = events[i].data.fd;
             /* 本子进程负责的客户端有数据到达 */
-            if (sockfd == connfd && (events[i].events & POLLIN)) {
+            if (sockfd == connfd && (events[i].events & EPOLLIN)) {
                 memset(share_mem + idx * BUFFER_SIZE, '\0', BUFFER_SIZE);
                 /* 将收到的数据读到共享内存中 */
                 ret = recv(connfd, share_mem + idx * BUFFER_SIZE, BUFFER_SIZE - 1, 0);
-                if (res < 0) {
+                if (ret < 0) {
                     if (errno != EAGAIN) {
                         stop_child = true;
                     }
@@ -140,7 +141,7 @@ int run_child(int idx, client_data *users, char *share_mem) {
                     /* 将共享内存中的数据发送出去 */
                     send(connfd, share_mem + client * BUFFER_SIZE, BUFFER_SIZE, 0);
                 }
-            } 
+            }
             else {
                 continue;
             }
@@ -158,7 +159,7 @@ int main(int argc, char const *argv[]) {
         return 1;
     }
     const char *ip = argv[1];
-    int port = atot(argv[2]);
+    int port = atoi(argv[2]);
 
     int ret = 0;
     struct sockaddr_in address;
@@ -178,7 +179,7 @@ int main(int argc, char const *argv[]) {
 
     user_counter = 0;
     users = new client_data[USER_LIMIT + 1];
-    usb_process = new int[PROCESS_LIMIT];
+    sub_process = new int[PROCESS_LIMIT];
     for (int i = 0; i < PROCESS_LIMIT; ++i) {
         sub_process[i] = -1;
     }
@@ -206,8 +207,8 @@ int main(int argc, char const *argv[]) {
     ret = ftruncate(shmfd, USER_LIMIT * BUFFER_SIZE);
     assert(ret != -1);
 
-    shame_mem = (char*)mmap(NULL, USER_LIMIT * BUFFER_SIZE, 
-        PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0); 
+    share_mem = (char*)mmap(NULL, USER_LIMIT * BUFFER_SIZE,
+        PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
     assert(share_mem != MAP_FAILED);
     close(shmfd);
 
@@ -236,7 +237,7 @@ int main(int argc, char const *argv[]) {
                 }
                 users[user_counter].address = client_address;
                 users[user_counter].connfd = connfd;
-                
+
                 ret = socketpair(PF_UNIX, SOCK_STREAM, 0, users[user_counter].pipefd);
                 assert(ret != -1);
 
@@ -254,7 +255,7 @@ int main(int argc, char const *argv[]) {
                     run_child(user_counter, users, share_mem);
                     munmap((void*)share_mem, USER_LIMIT * BUFFER_SIZE);
                     exit(0);
-                } 
+                }
                 else  {
                     close(connfd);
                     close(users[user_counter].pipefd[1]);
@@ -265,12 +266,12 @@ int main(int argc, char const *argv[]) {
                 }
 
             }
-            /* 处理信号事件 */ 
-            else if (sockfd == sig_pipefd[0] && (events[i].events & EPOLLIN)){
+            /* 处理信号事件 */
+            else if (sockfd == sig_pipefd[0] && (events[i].events & EPOLLIN)) {
                 int sig;
                 char signals[1024];
                 ret = recv(sig_pipefd[0], signals, sizeof(signals), 0);
-                if (res == -1) {
+                if (ret == -1) {
                     continue;
                 }
                 else if (ret == 0) {
@@ -283,15 +284,15 @@ int main(int argc, char const *argv[]) {
                             case SIGCHLD : {
                                 pid_t pid;
                                 int stat;
-                                while((pid = waitpid(-1, &sta, WNOHANG)) > 0) {
+                                while((pid = waitpid(-1, &stat, WNOHANG)) > 0) {
                                     int del_user = sub_process[pid];
                                     sub_process[pid] = -1;
                                     if (del_user < 0 || del_user > USER_LIMIT) {
                                         continue;
                                     }
-                                    epoll_ctl(epollfd, EPOLL_CTL_DEL, users[del_user].pipefd[0]);
+                                    epoll_ctl(epollfd, EPOLL_CTL_DEL, users[del_user].pipefd[0], 0);
                                     close(users[del_user].pipefd[0]);
-                                    users[del_user] = users[--user_count];
+                                    users[del_user] = users[--user_counter];
                                     sub_process[users[del_user].pid] = del_user;
                                 }
                                 if (terminate && user_counter == 0){
@@ -320,23 +321,24 @@ int main(int argc, char const *argv[]) {
                         }
                     }
                 }
-                /* 子进程向父进程写了数据 */
-                else if (events[i].events & EPOLLIN) {
-                    int child = 0;
-                    ret = recv(sockfd, (char*)(&child), sizeof(child), 0);
-                    printf("read data from child accross pipe\n");
-                    if (ret == -1) {
-                        continue;
-                    }
-                    else if (ret == 0) {
-                        continue;
-                    }
-                    else {
-                        for (int j = 0; j < user_counter; ++j) {
-                            if (users[j].pipefd[0] != sockfd) {
-                                printf("send data to child accross pipe\n");
-                                send(users[j].pipefd[0], (char*)(&child), sizeof(child), 0);
-                            }
+
+            }
+            /* 子进程向父进程写了数据 */
+            else if (events[i].events & EPOLLIN) {
+                int child = 0;
+                ret = recv(sockfd, (char*)(&child), sizeof(child), 0);
+                printf("read data from child accross pipe\n");
+                if (ret == -1) {
+                    continue;
+                }
+                else if (ret == 0) {
+                    continue;
+                }
+                else {
+                    for (int j = 0; j < user_counter; ++j) {
+                        if (users[j].pipefd[0] != sockfd) {
+                            printf("send data to child accross pipe\n");
+                            send(users[j].pipefd[0], (char*)(&child), sizeof(child), 0);
                         }
                     }
                 }
@@ -344,6 +346,7 @@ int main(int argc, char const *argv[]) {
         }
     }
 
+    del_resource();
     return 0;
 }
 
