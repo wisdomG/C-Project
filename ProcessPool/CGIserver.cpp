@@ -44,7 +44,7 @@ public:
                     removefd(m_epollfd, m_sockfd);
                     break;
                 }
-                ret = fork;
+                ret = fork();
                 if (ret == -1) {
                     removefd(m_epollfd, m_sockfd);
                     break;
@@ -52,7 +52,7 @@ public:
                     removefd(m_epollfd, m_sockfd);
                     break;
                 } else {
-                    close(STDOUT_FIFENO);
+                    close(STDOUT_FILENO);
                     dup(m_sockfd);
                     execl(m_buf, m_buf, 0);
                     exit(0);
@@ -67,7 +67,7 @@ private:
     sockaddr_in m_address;
     char m_buf[BUFFER_SIZE];
     int m_read_idx;
-}
+};
 
 int CGI_conn::m_epollfd = -1;
 
@@ -77,7 +77,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     const char* ip = argv[1];
-    int port = stoi(argv[2]);
+    int port = atoi(argv[2]);
 
     int listenfd = socket(PF_INET, SOCK_STREAM, 0);
     assert(listenfd >= 0);
@@ -92,10 +92,10 @@ int main(int argc, char* argv[]) {
     ret = bind(listenfd, (struct sockaddr*)(&address), sizeof(address));
     assert(ret != -1);
 
-    ret = listen(listtenfd, 5);
+    ret = listen(listenfd, 5);
     assert(ret != -1);
 
-    ProcesPool<CGI_conn>* pool = ProcessPool<CGI_conn>::create(listenfd);
+    ProcessPool<CGI_conn>* pool = ProcessPool<CGI_conn>::create(listenfd);
     if (pool) {
         pool->run();
         delete pool;

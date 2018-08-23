@@ -17,16 +17,15 @@
 #include <stdlib.h>
 #include <sys/epoll.h>
 #include <signal.h>
+#include <sys/wait.h>
 #include <sys/stat.h>
 
 class Process {
 public:
     Process() : m_pid(-1) { }
-private:
     pid_t m_pid;      // 子进程PID
     int m_pipefd[2];  // 与父进程通信使用的管道
-}
-
+};
 
 template<typename T>
 class ProcessPool {
@@ -39,7 +38,7 @@ public:
         }
         return m_instance;
     }
-    ~processpool() {
+    ~ProcessPool() {
         delete[] m_sub_process;
     }
     void run();
@@ -70,7 +69,7 @@ private:
     Process* m_sub_process;
     /* 进程池实例 */
     static ProcessPool<T>* m_instance;
-}
+};
 
 template<typename T>
 ProcessPool<T>* ProcessPool<T>::m_instance = NULL;
@@ -105,7 +104,7 @@ static void sig_handler(int sig) {
     errno = save_errno;
 }
 
-static void addsig(int sig, void(hangle*)(int), bool restart = true) {
+static void addsig(int sig, void(*handler)(int), bool restart = true) {
     struct sigaction sa;
     memset(&sa, '\0', sizeof(sa));
     sa.sa_handler = handler;
@@ -144,7 +143,7 @@ ProcessPool<T>::ProcessPool(int listenfd, int process_number)
 
 /* 统一事件源 */
 template<typename T>
-void ProcessPool<T>::setups_sig_pipe() {
+void ProcessPool<T>::setup_sig_pipe() {
     m_epollfd = epoll_create(5);
     assert(m_epollfd != -1);
 
@@ -161,7 +160,7 @@ void ProcessPool<T>::setups_sig_pipe() {
 }
 
 template<typename T>
-void PeocessPool<T>::run() {
+void ProcessPool<T>::run() {
     if (m_idx != -1) {
         run_child();
         return ;
@@ -255,7 +254,7 @@ void ProcessPool<T>::run_child() {
 }
 
 template<typename T>
-void ProcessPoll<T>::run_parent() {
+void ProcessPool<T>::run_parent() {
     setup_sig_pipe();
     addfd(m_epollfd, m_listenfd);
 
@@ -271,7 +270,7 @@ void ProcessPoll<T>::run_parent() {
             printf("epoll failure\n");
             break;
         }
-        
+
         for (int i = 0; i < number; ++i) {
             int sockfd = events[i].data.fd;
             if (sockfd == m_listenfd) {
@@ -289,7 +288,7 @@ void ProcessPoll<T>::run_parent() {
                     break;
                 }
                 sub_process_counter = (i + 1) % m_process_number;
-                send(m_sub_process[i].m_pipefd[0], (char*)(new_conn), sizeof(new_conn), 0);
+                send(m_sub_process[i].m_pipefd[0], (char*)(&new_conn), sizeof(new_conn), 0);
                 printf("send request to child %d\n", i);
             } else if (sockfd == sig_pipefd[0] && (events[i].events & EPOLLIN)) {
                 /* 处理父进程收到的信号 */
@@ -308,7 +307,7 @@ void ProcessPoll<T>::run_parent() {
                                     for (int i = 0; i < m_process_number; ++i) {
                                         if (m_sub_process[i].m_pid == pid) {
                                             printf("child %d join\n", i);
-                                            close(m_sub_process[i].pipefd[0]);
+                                            close(m_sub_process[i].m_pipefd[0]);
                                             m_sub_process[i].m_pid = -1;
                                         }
                                     }
