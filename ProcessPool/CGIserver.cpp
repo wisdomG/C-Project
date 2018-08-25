@@ -1,5 +1,9 @@
 #include "processpool.h"
 
+/************************************************************
+ * 基于线程池的CGI服务器
+ * CGI_conn作为线程池类的模板参数，来负责处理收到的数据
+ * *********************************************************/
 class CGI_conn {
 public:
     CGI_conn() { }
@@ -25,6 +29,7 @@ public:
                 }
                 break;
             } else if (ret == 0) {
+                /* 链接关闭 */
                 removefd(m_epollfd, m_sockfd);
                 break;
             } else {
@@ -40,11 +45,13 @@ public:
                 }
                 m_buf[idx - 1] = '\0';
                 char *file_name = m_buf;
+                printf("CGI program name: %s\n", file_name);
                 if (access(file_name, F_OK) == -1) {
                     removefd(m_epollfd, m_sockfd);
+                    printf("CGI Program %s not exists\n", file_name);
                     break;
                 }
-                ret = fork();
+                ret = fork(); // 子进程处理CGI程序
                 if (ret == -1) {
                     removefd(m_epollfd, m_sockfd);
                     break;
@@ -96,6 +103,7 @@ int main(int argc, char* argv[]) {
     assert(ret != -1);
 
     ProcessPool<CGI_conn>* pool = ProcessPool<CGI_conn>::create(listenfd);
+
     if (pool) {
         pool->run();
         delete pool;

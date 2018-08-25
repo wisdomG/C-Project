@@ -32,6 +32,7 @@ class ProcessPool {
 private:
     ProcessPool(int listenfd, int process_number = 8);
 public:
+    /* 这是一个单例模式 */
     static ProcessPool<T>* create(int listenfd, int process_number = 8) {
         if (!m_instance) { // m_instance = null
             m_instance = new ProcessPool<T>(listenfd, process_number);
@@ -115,6 +116,10 @@ static void addsig(int sig, void(*handler)(int), bool restart = true) {
     assert(sigaction(sig, &sa, NULL) != -1);
 }
 
+/***************************************************************
+ * 构造函数
+ * 在构造函数中创建若干个子进程，并设置与父进程通信用的管道 
+ * ************************************************************/
 template<typename T>
 ProcessPool<T>::ProcessPool(int listenfd, int process_number)
     :m_listenfd(listenfd), m_process_number(process_number), m_idx(-1),
@@ -136,16 +141,20 @@ ProcessPool<T>::ProcessPool(int listenfd, int process_number)
         } else { // 子进程
             close(m_sub_process[i].m_pipefd[0]);
             m_idx = i;
-            break;
+            break; // 这里子进程一定要break，不然也就进行循环往下执行
         }
     }
 }
 
-/* 统一事件源 */
+/**************************************************************
+ * 统一事件源
+ * 将管道描述符加入到epoll事件链表中
+ * ***********************************************************/ 
 template<typename T>
 void ProcessPool<T>::setup_sig_pipe() {
     m_epollfd = epoll_create(5);
     assert(m_epollfd != -1);
+    printf("process %d s epollfd %d\n", getpid(), epollfd);
 
     int ret = socketpair(PF_UNIX, SOCK_STREAM, 0, sig_pipefd);
     assert(ret != -1);
@@ -159,6 +168,10 @@ void ProcessPool<T>::setup_sig_pipe() {
     addsig(SIGPIPE, SIG_IGN);
 }
 
+/**************************************************************
+ * 开启父进程与子进程
+ * 父进程的m_idx在构造函数中初始化为-1
+ * ***********************************************************/
 template<typename T>
 void ProcessPool<T>::run() {
     if (m_idx != -1) {
@@ -168,6 +181,10 @@ void ProcessPool<T>::run() {
     run_parent();
 }
 
+/*************************************************************
+ * 子进程运行
+ * 
+ * **********************************************************/
 template<typename T>
 void ProcessPool<T>::run_child() {
     setup_sig_pipe();
@@ -175,6 +192,7 @@ void ProcessPool<T>::run_child() {
     addfd(m_epollfd, pipefd);
 
     epoll_event events[MAX_EVENT_NUMBER];
+    /* 每个用户就是一个模板类，对应一个连接 */
     T* users = new T[USER_PER_PROCESS];
     assert(users);
 
@@ -205,7 +223,9 @@ void ProcessPool<T>::run_child() {
                         continue;
                     }
                     addfd(m_epollfd, connfd);
+                    /* 执行一些初始化动作 */
                     users[connfd].init(m_epollfd, connfd, client_address);
+                    printf("Process %d receive a connection at %d fd", getpid(), connfd);
                 }
             } else if (sockfd == sig_pipefd[0] && (events[i].events & EPOLLIN)) {
                 /* 子进程接收到的信号 */
@@ -217,6 +237,7 @@ void ProcessPool<T>::run_child() {
                 } else {
                     for (int i = 0; i < ret; ++i) {
                         switch(signals[i]) {
+                            /* 子进程会收到SIGCHLD信号吗 */
                             case SIGCHLD: {
                                 pid_t pid;
                                 int stat;
@@ -239,7 +260,7 @@ void ProcessPool<T>::run_child() {
                     }
                 }
             } else if (events[i].events & EPOLLIN) {
-                /* 其他可读数据，则一定是客户请求，调用process函数处理 */
+                /* 其他可读数据，交个模板T处理即可 */
                 users[sockfd].process();
             } else {
                 continue;
@@ -253,10 +274,14 @@ void ProcessPool<T>::run_child() {
     close(m_epollfd);
 }
 
+/**************************************************
+ * 运行父进程
+ * 
+ * ***********************************************/
 template<typename T>
 void ProcessPool<T>::run_parent() {
-    setup_sig_pipe();
-    addfd(m_epollfd, m_listenfd);
+    setup_sig_pipe();   // 该函数对管道好信号统一事件源，并初始化epoll
+    addfd(m_epollfd, m_listenfd)
 
     epoll_event events[MAX_EVENT_NUMBER];
     int sub_process_counter = 0;
@@ -306,6 +331,7 @@ void ProcessPool<T>::run_parent() {
                                 while ((pid = waitpid(-1, &stat, WNOHANG)) > 0) {
                                     for (int i = 0; i < m_process_number; ++i) {
                                         if (m_sub_process[i].m_pid == pid) {
+                                            /* 该子进程结束，关闭信号用管道，并将m_pid置为-1 */
                                             printf("child %d join\n", i);
                                             close(m_sub_process[i].m_pipefd[0]);
                                             m_sub_process[i].m_pid = -1;
@@ -317,7 +343,7 @@ void ProcessPool<T>::run_parent() {
                             case SIGTERM: {
                                 break;
                             }
-                            case SIGINT: {
+                            case SIGINT: {  // 收到ctrl+C
                                 printf("kill all the child now\n");
                                 for (int i = 0; i < m_process_number; ++i) {
                                     int pid = m_sub_process[i].m_pid;
