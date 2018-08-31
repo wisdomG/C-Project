@@ -118,7 +118,7 @@ static void addsig(int sig, void(*handler)(int), bool restart = true) {
 
 /***************************************************************
  * 构造函数
- * 在构造函数中创建若干个子进程，并设置与父进程通信用的管道 
+ * 在构造函数中创建若干个子进程，并设置与父进程通信用的管道
  * ************************************************************/
 template<typename T>
 ProcessPool<T>::ProcessPool(int listenfd, int process_number)
@@ -149,12 +149,12 @@ ProcessPool<T>::ProcessPool(int listenfd, int process_number)
 /**************************************************************
  * 统一事件源
  * 将管道描述符加入到epoll事件链表中
- * ***********************************************************/ 
+ * ***********************************************************/
 template<typename T>
 void ProcessPool<T>::setup_sig_pipe() {
     m_epollfd = epoll_create(5);
     assert(m_epollfd != -1);
-    printf("process %d s epollfd %d\n", getpid(), epollfd);
+    printf("process %d s epollfd %d\n", getpid(), m_epollfd);
 
     int ret = socketpair(PF_UNIX, SOCK_STREAM, 0, sig_pipefd);
     assert(ret != -1);
@@ -183,7 +183,7 @@ void ProcessPool<T>::run() {
 
 /*************************************************************
  * 子进程运行
- * 
+ *
  * **********************************************************/
 template<typename T>
 void ProcessPool<T>::run_child() {
@@ -225,7 +225,7 @@ void ProcessPool<T>::run_child() {
                     addfd(m_epollfd, connfd);
                     /* 执行一些初始化动作 */
                     users[connfd].init(m_epollfd, connfd, client_address);
-                    printf("Process %d receive a connection at %d fd", getpid(), connfd);
+                    printf("Process %d receive a connection at %d fd\n", getpid(), connfd);
                 }
             } else if (sockfd == sig_pipefd[0] && (events[i].events & EPOLLIN)) {
                 /* 子进程接收到的信号 */
@@ -239,6 +239,7 @@ void ProcessPool<T>::run_child() {
                         switch(signals[i]) {
                             /* 子进程会收到SIGCHLD信号吗 */
                             case SIGCHLD: {
+                                printf("child process %d receive SIGCHLD signal\n", getpid());
                                 pid_t pid;
                                 int stat;
                                 while ((pid = waitpid(-1, &stat, WNOHANG)) > 0) {
@@ -247,9 +248,11 @@ void ProcessPool<T>::run_child() {
                                 break;
                             }
                             case SIGTERM: {
+                                printf("child process %d receive SIGTERM signal\n", getpid());
                                 break;
                             }
                             case SIGINT: {
+                                printf("child process %d receive SIGINT signal\n", getpid());
                                 m_stop = true;
                                 break;
                             }
@@ -276,12 +279,12 @@ void ProcessPool<T>::run_child() {
 
 /**************************************************
  * 运行父进程
- * 
+ *
  * ***********************************************/
 template<typename T>
 void ProcessPool<T>::run_parent() {
     setup_sig_pipe();   // 该函数对管道好信号统一事件源，并初始化epoll
-    addfd(m_epollfd, m_listenfd)
+    addfd(m_epollfd, m_listenfd);
 
     epoll_event events[MAX_EVENT_NUMBER];
     int sub_process_counter = 0;
@@ -301,20 +304,21 @@ void ProcessPool<T>::run_parent() {
             if (sockfd == m_listenfd) {
                 /* 新连接到来 */
                 int i = sub_process_counter;
-                /* round robin 方式获取一个子进程 */
+                /* round robin 方式获取一个子进程，m_pid这个参数在构造的时候就已经赋值好了 */
                 do {
                     if (m_sub_process[i].m_pid != -1) {
                         break;
                     }
                     i = (i + 1) % m_process_number;
                 } while (i != sub_process_counter);
+                /* =-1 表示子进程已经退出，说明父进程也该退出了 */
                 if (m_sub_process[i].m_pid == -1) {
                     m_stop = true;
                     break;
                 }
                 sub_process_counter = (i + 1) % m_process_number;
                 send(m_sub_process[i].m_pipefd[0], (char*)(&new_conn), sizeof(new_conn), 0);
-                printf("send request to child %d\n", i);
+                printf("send request to child %d at (pid)%d\n", i, m_sub_process[i].m_pid);
             } else if (sockfd == sig_pipefd[0] && (events[i].events & EPOLLIN)) {
                 /* 处理父进程收到的信号 */
                 int sig;
@@ -326,24 +330,34 @@ void ProcessPool<T>::run_parent() {
                     for (int i = 0; i < ret; ++i) {
                         switch(signals[i]) {
                             case SIGCHLD: {
+                                printf("parent process receives SIGCHLD signal\n");
                                 pid_t pid;
                                 int stat;
                                 while ((pid = waitpid(-1, &stat, WNOHANG)) > 0) {
                                     for (int i = 0; i < m_process_number; ++i) {
                                         if (m_sub_process[i].m_pid == pid) {
-                                            /* 该子进程结束，关闭信号用管道，并将m_pid置为-1 */
+                                            /* 该子进程结束，关闭信号用管道，并将m_pid置为-1，标记子进程退出 */
                                             printf("child %d join\n", i);
                                             close(m_sub_process[i].m_pipefd[0]);
                                             m_sub_process[i].m_pid = -1;
                                         }
                                     }
                                 }
+                                /* 所有子进程都退出之后，父进程也退出 */
+                                m_stop = true;
+                                for (int i = 0; i < m_process_number; ++i) {
+                                    if (m_sub_process[i].m_pid != -1) {
+                                        m_stop = false;
+                                    }
+                                }
                                 break;
                             }
                             case SIGTERM: {
+                                printf("parent process receives SIGTERM signal\n");
                                 break;
                             }
                             case SIGINT: {  // 收到ctrl+C
+                                printf("parent process receives SIGINT signal\n");
                                 printf("kill all the child now\n");
                                 for (int i = 0; i < m_process_number; ++i) {
                                     int pid = m_sub_process[i].m_pid;
