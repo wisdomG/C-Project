@@ -23,7 +23,7 @@
 #include <sys/shm.h>
 #include <fcntl.h>
 
-#define USER_LIMIT 5
+#define USER_LIMIT 3
 #define BUFFER_SIZE 1024
 #define FD_LIMIT 65536
 #define MAX_EVENT_NUMBER 1024
@@ -62,6 +62,7 @@ void addfd(int epollfd, int fd) {
     setnonblocking(fd);
 }
 
+// 信号处理函数，其实就是将信号通过sockpair发送出去
 void sig_handler(int sig) {
     int save_errno = errno;
     int msg = sig;
@@ -112,6 +113,7 @@ int run_child(int idx, client_data *users, char *share_mem) {
     int pipefd = users[idx].pipefd[1]; // 该管道维系着与主进程的通信
     addfd(child_epollfd, pipefd);
 
+    // 父进程会发送过来一个SIGTERM信号 
     addsig(SIGTERM, child_term_handler, false);
     int ret;
     /* 循环干两件事情，一个是将客户端发送的数据保存到共享内存中，再通知父进程该客户端的编号 */
@@ -192,7 +194,8 @@ int main(int argc, char const *argv[]) {
 
     user_counter = 0;
     users = new client_data[USER_LIMIT + 1];
-    sub_process = new int[PROCESS_LIMIT];   // 存放什么东西，为什么比USERLIMIT大很多
+    // sub_process中存放的值是第几个用户，其索引是处理该用户连接的进程号
+    sub_process = new int[PROCESS_LIMIT]; 
     for (int i = 0; i < PROCESS_LIMIT; ++i) {
         sub_process[i] = -1;
     }
@@ -206,8 +209,8 @@ int main(int argc, char const *argv[]) {
     ret = socketpair(PF_UNIX, SOCK_STREAM, 0, sig_pipefd);
     assert(ret != -1);
 
-    setnonblocking(sig_pipefd[1]);
-    addfd(epollfd, sig_pipefd[0]);
+    setnonblocking(sig_pipefd[1]); // 设置成非阻塞
+    addfd(epollfd, sig_pipefd[0]); // 加入epoll中管理
 
     addsig(SIGCHLD, sig_handler);
     addsig(SIGTERM, sig_handler);
@@ -232,6 +235,7 @@ int main(int argc, char const *argv[]) {
     /* para5: 共享内存的fd */
     /* para6: 偏移 */
     /* return: 内存其实地址 */
+    // 这里相当于为每个客户端建立了缓冲区
     share_mem = (char*)mmap(NULL, USER_LIMIT * BUFFER_SIZE,
         PROT_READ | PROT_WRITE, MAP_SHARED, shmfd, 0);
     assert(share_mem != MAP_FAILED);
@@ -259,11 +263,13 @@ int main(int argc, char const *argv[]) {
                     const char *info = "too many users";
                     printf("%s", info);
                     send(connfd, info, strlen(info), 0);
+                    close(connfd);
                     continue;
                 }
                 /* 初始化客户连接参数 */
                 users[user_counter].address = client_address;
                 users[user_counter].connfd = connfd;
+                // 为每个子进程都建立一个sockpair
                 ret = socketpair(PF_UNIX, SOCK_STREAM, 0, users[user_counter].pipefd);
                 assert(ret != -1);
 
@@ -276,15 +282,18 @@ int main(int argc, char const *argv[]) {
                     close(epollfd);
                     close(listenfd);
                     close(users[user_counter].pipefd[0]); // 子进程关闭管道另一端
-                    close(sig_pipefd[0]); // 子进程用不到，就都关闭了?
+                    close(sig_pipefd[0]);  // 子进程用不到这个管道，就直接关闭了
                     close(sig_pipefd[1]); 
+                    // 运行子进程
                     run_child(user_counter, users, share_mem);
+                    // 退出内存映射
                     munmap((void*)share_mem, USER_LIMIT * BUFFER_SIZE);
                     exit(0); // 子进程退出，父进程就会收到SIGCHLD信号
                 }
                 else  { // 父进程
+                    printf("new connection %d\n", pid);
                     close(connfd); // 子进程继承了connfd，这里相当于将引用计数-1？
-                    close(users[user_counter].pipefd[1]); // 父进程关闭管道一端，从另一端准备接受数据
+                    close(users[user_counter].pipefd[1]); // 父进程关闭管道一端，从另一端准备接收数据
                     addfd(epollfd, users[user_counter].pipefd[0]); // 将负责与子进程通信管道fd加入epoll监控
                     users[user_counter].pid = pid;
                     sub_process[pid] = user_counter; // 建立子进程与客户数据的映射
@@ -320,6 +329,7 @@ int main(int argc, char const *argv[]) {
                                     }
                                     epoll_ctl(epollfd, EPOLL_CTL_DEL, users[del_user].pipefd[0], 0);
                                     close(users[del_user].pipefd[0]);
+                                    // 这里腾出最后一个位置
                                     users[del_user] = users[--user_counter];
                                     sub_process[users[del_user].pid] = del_user;
                                 }
@@ -340,7 +350,7 @@ int main(int argc, char const *argv[]) {
                                 }
                                 for (int i = 0; i < user_counter; ++i) {
                                     int pid = users[i].pid;
-                                    // 向每个进行发送终止信号
+                                    // 向每个子进程发送终止信号
                                     kill(pid, SIGTERM);
                                 }
                                 terminate = true;
@@ -355,7 +365,7 @@ int main(int argc, char const *argv[]) {
             else if (events[i].events & EPOLLIN) { // sockfd是子进程管道fd，
                 int child = 0;
                 ret = recv(sockfd, (char*)(&child), sizeof(child), 0);
-                printf("read data from child accross pipe\n");
+                printf("receive data from child accross pipe\n");
                 if (ret == -1) {
                     continue;
                 }
@@ -379,33 +389,6 @@ int main(int argc, char const *argv[]) {
     del_resource();
     return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
