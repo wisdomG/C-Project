@@ -200,17 +200,18 @@ void* worker_thread_func(void* arg)
         std::cout << std::endl;
 
         std::string strclientmsg;
-        char buff[256];
+        char buff[10]; // 这个为了观察现象，将buff设置的小一点
         bool bError = false;
-        // 循环接收消息
+        // 因为是边沿触发模式的非阻塞IO，所以要使用循环将缓冲区中的数据读完
         while (true)
         {
             memset(buff, 0, sizeof(buff));
             // 接收消息
-            int nRecv = ::recv(clientfd, buff, 256, 0);
+            int nRecv = ::recv(clientfd, buff, 10, 0);
             if (nRecv == -1)
             {
-                // 读不到数据了，即缓冲为空，则break到下次epoll_wait返回后在读
+                // EWOULDBLOCK 说明缓冲区的数据已经被我们读完了
+                // 则退出循环处理本次数据
                 if (errno == EWOULDBLOCK)
                     break;
                 else
@@ -232,13 +233,16 @@ void* worker_thread_func(void* arg)
             }
             // nRecv > 0的情况
             strclientmsg += buff;
+            printf("read %d data\n", nRecv);
         }
 
         // 出错就不需要往下继续执行了
-        if (bError)
+        if (bError) {
+            printf("bError == true\n");
             continue;
+        }
         
-        std::cout << "client msg: " << strclientmsg;
+        std::cout << "client msg: " << strclientmsg << std::endl;
 
         // 将收到的消息加上时间戳进行返回
         time_t now = time(NULL);
@@ -277,8 +281,10 @@ void* worker_thread_func(void* arg)
             std::cout << "send: " << strclientmsg;
             strclientmsg.erase(0, nSent);
 
-            if (strclientmsg.empty())
+            if (strclientmsg.empty()) {
+                std::cout << std::endl;
                 break;
+            }
         }
     }
 
