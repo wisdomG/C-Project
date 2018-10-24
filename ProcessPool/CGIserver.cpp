@@ -35,6 +35,7 @@ public:
             } else {
                 m_read_idx += ret;
                 printf("user content is %s\n", m_buf);
+                // 找到\r\n所在的位置
                 for (; idx < m_read_idx; ++idx) {
                     if (idx >= -1 && m_buf[idx-1] == '\r' && m_buf[idx] == '\n') {
                         break;
